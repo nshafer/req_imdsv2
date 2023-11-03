@@ -51,7 +51,7 @@ defmodule ReqIMDSv2 do
         iex> req = Req.new(url: "http://169.254.169.254/latest/meta-data/hostname")
         ...> |> ReqIMDSv2.attach(metadata_token: token)
         iex> Req.get!(req).body
-        "i-1234567890abcdef0"
+        "ip-10-0-1-1.us-west-1.compute.internal"
 
   """
   @spec attach(Request.t(), Keyword.t()) :: Request.t()
