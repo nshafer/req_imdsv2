@@ -31,8 +31,8 @@ defmodule ReqIMDSv2 do
 
   ## Options
 
-  * `:metadata_token` - A token to use for authentication. If not provided, a new token will be fetched. See
-      `get_metadata_token/1` for more info on extracting a token from a response.
+  * `:metadata_token` - A token to use for authentication. If not provided, a new token will be fetched from the
+      IMDSv2 service. See `get_metadata_token/1` for more info on extracting a token from a response.
   * `:metadata_token_ttl_seconds` - The TTL for the token. Defaults to the max allowed of 21600 (6 hours).
   * `:fallback_to_imdsv1` - If true, will fall back to IMDSv1 if IMDSv2 is not available, otherwise the request will
       return an error. Defaults to false.
@@ -73,14 +73,12 @@ defmodule ReqIMDSv2 do
     fallback_to_imdsv1 = Request.get_option(request, :fallback_to_imdsv1, false)
 
     if metadata_token do
-      request
-      |> Request.put_header("x-aws-ec2-metadata-token", metadata_token)
-      |> Request.put_private(:reqimdsv2_metadata_token, metadata_token)
+      # We were given a token, so just attach it and skip the PUT request. If it's invalid, then the request will fail.
+      put_token(request, metadata_token)
     else
-      # Get a new token
+      # Get a new token with a PUT request to the token endpoint. Use the same adapter as the original request.
       auth_req =
         Req.new(
-          method: :put,
           url: "http://169.254.169.254/latest/api/token",
           headers: %{"x-aws-ec2-metadata-token-ttl-seconds" => ttl_seconds},
           adapter: request.adapter
@@ -88,24 +86,30 @@ defmodule ReqIMDSv2 do
 
       case Req.put(auth_req) do
         {:ok, resp} ->
-          request
-          |> Request.put_header("x-aws-ec2-metadata-token", resp.body)
-          |> Request.put_private(:reqimdsv2_metadata_token, resp.body)
+          put_token(request, resp.body)
 
         {:error, reason} ->
-          case fallback_to_imdsv1 do
-            true ->
-              Logger.warning("Could not fetch metadata token: #{inspect(reason)}. Falling back to IMDSv1")
-
-              request
-
-            false ->
-              {Request.halt(request), RuntimeError.exception("Could not fetch metadata token: #{inspect(reason)}")}
+          # There was an error getting a new token (should be rare.) So we can either fall back to IMDSv1 or fail.
+          # Falling back to IMDSv1 just means continuing with the request as-is, with no token attached. This will
+          # fail if IMDSv2 is required on the instance.
+          if fallback_to_imdsv1 do
+            Logger.warning("Could not fetch metadata token: #{inspect(reason)}. Falling back to IMDSv1")
+            request
+          else
+            {Request.halt(request), RuntimeError.exception("Could not fetch metadata token: #{inspect(reason)}")}
           end
       end
     end
   end
 
+  # Put the token in the headers of the request, as well as attach it to private data so it can be extracted later.
+  defp put_token(%Request{} = request, token) do
+    request
+    |> Request.put_header("x-aws-ec2-metadata-token", token)
+    |> Request.put_private(:reqimdsv2_metadata_token, token)
+  end
+
+  # Extract the token from the request and attach it to the response so it can be extracted later.
   defp expose_metadata_token({%Request{} = request, %Response{} = response}) do
     token = Request.get_private(request, :reqimdsv2_metadata_token, nil)
 
@@ -117,7 +121,18 @@ defmodule ReqIMDSv2 do
   end
 
   @doc """
-  Extracts the metadata token from a response. This can be used to reuse the token for subsequent requests.
+  Extracts the metadata token from a response.
+
+  This can be used to reuse the token for subsequent requests. Returns `nil` if the token is not present, such as if
+  the token request failed and the request fell back to IMDSv1.
+
+  ## Example
+
+        req =
+          Req.new(url: "http://169.254.169.254/latest/meta-data/instance-id")
+          |> ReqIMDSv2.attach(req)
+        {:ok, resp} = Req.get(req)
+        token = ReqIMDSv2.get_metadata_token(resp)
   """
   @spec get_metadata_token(Response.t()) :: String.t() | nil
   def get_metadata_token(%Response{} = response) do
