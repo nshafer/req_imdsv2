@@ -16,7 +16,8 @@ to the request.
 
 ## Installation
 
-The package can be installed by adding `req_imdsv2` to your list of dependencies in `mix.exs`:
+The package can be installed from [hex.pm](https://hex.pm/packages/req_imdsv2) by adding `req_imdsv2` to
+your list of dependencies in `mix.exs`:
 
 ```elixir
 def deps do
@@ -26,6 +27,11 @@ def deps do
   ]
 end
 ```
+
+## Documentation
+
+Documentation is available from [hexdocs.pm](https://hexdocs.pm/req_imdsv2).
+
 ## Usage
 
 This will work on an instance that has IMDSv2 required, and will not answer to IMDSv1 requests.
