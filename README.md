@@ -8,10 +8,11 @@ to the request.
 
 ## Features
 
-- Integrates easily with [Req](https://github.com/wojtekmach/req)
-- Handles the extra step of fetching and using a metadata token from IMDSv2
+- Integrates easily with [Req](https://hexdocs.pm/req).
+- Handles the extra step of fetching and using a metadata token from IMDSv2.
+- Fetches the token from the same host as the original request.
 - Supports extracting the metadata token for re-use on subsequent requests.
-- Can enable `:fallback_to_imdsv1` if desired, in the case that IMDSv2 fails. (highly unlikely)
+- Can enable `:fallback_to_imdsv1` if desired, in the case that IMDSv2 fails. (highly unlikely.)
 
 ## Installation
 
@@ -25,7 +26,9 @@ def deps do
   ]
 end
 ```
-## Examples
+## Usage
+
+This will work on an instance that has IMDSv2 required, and will not answer to IMDSv1 requests.
 
 ```elixir
 Req.new(url: "http://169.254.169.254/latest/meta-data/instance-id")
@@ -33,3 +36,5 @@ Req.new(url: "http://169.254.169.254/latest/meta-data/instance-id")
 |> Req.get!().body
 "i-1234567890abcdef0"
 ```
+
+See the `ReqIMDSv2` module for more information and examples.

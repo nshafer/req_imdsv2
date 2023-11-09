@@ -84,4 +84,27 @@ defmodule ReqIMDSv2Test do
     log = capture_log(do_request)
     assert log =~ "Falling back to IMDSv1"
   end
+
+  test "fetches token from same host as original request" do
+    mock_valid_adapter = fn request ->
+      case request.url.path do
+        "/latest/api/token" ->
+          assert request.url.host == "localhost"
+          assert request.url.port == 4000
+          {request, Response.new(status_code: 200, body: "mock-token")}
+
+        "/latest/meta-data/" ->
+          assert request.url.host == "localhost"
+          assert request.url.port == 4000
+          {request, Response.new(status_code: 200, body: "mock-data")}
+      end
+    end
+
+    request =
+      Req.new(url: "http://localhost:4000/latest/meta-data/", adapter: mock_valid_adapter)
+      |> ReqIMDSv2.attach()
+
+    assert {:ok, resp} = Req.get(request)
+    assert "mock-token" == ReqIMDSv2.get_metadata_token(resp)
+  end
 end

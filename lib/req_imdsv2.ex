@@ -12,12 +12,33 @@ defmodule ReqIMDSv2 do
 
   ## Examples
 
-      iex> Req.new(url: "http://169.254.169.254/latest/meta-data/instance-id")
-      ...> |> ReqIMDSv2.attach()
-      ...> |> Req.get()
+      {:ok, response} =
+        Req.new(url: "http://169.254.169.254/latest/meta-data/instance-id")
+        |> ReqIMDSv2.attach()
+        |> Req.get()
       {:ok, %Req.Response{body: "i-1234567890abcdef0", ...}
 
-  See `attach/2` for options and more examples.
+  If you use a different host for IMDS data, such as for tests, the token will be fetched from that same URL:
+
+      iex> req = Req.new(url: "http://localhost:4000/latest/meta-data/instance-id")
+      iex> req = ReqIMDSv2.attach(req)
+      iex> {:ok, resp} = Req.get(req)
+      # ReqIMDSv2 will make a request to http://localhost:4000/latest/api/token to get the token.
+      iex> resp.body
+      "i-1234567890abcdef0"
+
+  You can extract the token from the response and reuse it for subsequent requests:
+
+      iex> req = Req.new(url: "http://169.254.169.254/latest/meta-data/instance-id")
+      iex> req = ReqIMDSv2.attach(req)
+      iex> {:ok, resp} = Req.get(req)
+      iex> token = ReqIMDSv2.get_metadata_token(resp)
+      iex> req = Req.new(url: "http://169.254.169.254/latest/meta-data/hostname")
+      ...> |> ReqIMDSv2.attach(metadata_token: token)
+      iex> Req.get!(req).body
+      "ip-10-0-1-1.us-west-1.compute.internal"
+
+  See `attach/2` for options.
 
   """
 
@@ -29,6 +50,12 @@ defmodule ReqIMDSv2 do
   @doc """
   Attaches the IMDSv2 authentication steps to the request.
 
+  Once attached to a Req.Request, an extra request to get a IMDSv2 token will be made just prior to the original
+  request is made. The token will be attached to the request as a header, and also attached to the response so it
+  can be extracted and reused for subsequent requests.
+
+  The request for the token will use the same scheme, host and port to connect to for the token as the original request.
+
   ## Options
 
   * `:metadata_token` - A token to use for authentication. If not provided, a new token will be fetched from the
@@ -36,22 +63,6 @@ defmodule ReqIMDSv2 do
   * `:metadata_token_ttl_seconds` - The TTL for the token. Defaults to the max allowed of 21600 (6 hours).
   * `:fallback_to_imdsv1` - If true, will fall back to IMDSv1 if IMDSv2 is not available, otherwise the request will
       return an error. Defaults to false.
-
-  ## Examples
-
-        iex> req = Req.new(url: "http://169.254.169.254/latest/meta-data/instance-id")
-        iex> req = ReqIMDSv2.attach(req)
-        iex> {:ok, resp} = Req.get(req)
-        iex> resp.body
-        "i-1234567890abcdef0"
-
-    You can then extract the token from the response and reuse it for subsequent requests:
-
-        iex> token = ReqIMDSv2.get_metadata_token(resp)
-        iex> req = Req.new(url: "http://169.254.169.254/latest/meta-data/hostname")
-        ...> |> ReqIMDSv2.attach(metadata_token: token)
-        iex> Req.get!(req).body
-        "ip-10-0-1-1.us-west-1.compute.internal"
 
   """
   @spec attach(Request.t(), Keyword.t()) :: Request.t()
@@ -79,7 +90,7 @@ defmodule ReqIMDSv2 do
       # Get a new token with a PUT request to the token endpoint. Use the same adapter as the original request.
       auth_req =
         Req.new(
-          url: "http://169.254.169.254/latest/api/token",
+          url: auth_url(request),
           headers: %{"x-aws-ec2-metadata-token-ttl-seconds" => ttl_seconds},
           adapter: request.adapter
         )
@@ -100,6 +111,16 @@ defmodule ReqIMDSv2 do
           end
       end
     end
+  end
+
+  # Construct the auth_url from original request's URL, changing the path to the token endpoint.
+  defp auth_url(%Request{} = request) do
+    URI.new!(%URI{
+      scheme: request.url.scheme,
+      host: request.url.host,
+      port: request.url.port,
+      path: "/latest/api/token"
+    })
   end
 
   # Put the token in the headers of the request, as well as attach it to private data so it can be extracted later.
